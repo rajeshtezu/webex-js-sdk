@@ -69,8 +69,45 @@ describe('plugin-voicea', () => {
           trackingId: sinon.match.string,
         });
       });
+
+      it('listens to events once', () => {
+        const spy = sinon.spy(webex.internal.llm, 'on');
+
+        voiceaService.sendAnnouncement();
+
+        voiceaService.sendAnnouncement();
+
+        assert.calledOnceWithExactly(spy, 'event:relay.event', sinon.match.func);
+      });
     });
 
+    describe('#deregisterEvents', () => {
+      beforeEach(async () => {
+        const mockWebSocket = new MockWebSocket();
+
+        voiceaService.webex.internal.llm.socket = mockWebSocket;
+      });
+
+      it('deregisters voicea service', async () => {
+        voiceaService.listenToEvents();
+        await voiceaService.toggleTranscribing(true);
+
+        // eslint-disable-next-line no-underscore-dangle
+        voiceaService.webex.internal.llm._emit('event:relay.event', {
+          headers: {from: 'ws'},
+          data: {relayType: 'voicea.annc', voiceaPayload: {}},
+        });
+
+        assert.equal(voiceaService.hasVoiceaJoined, true);
+        assert.equal(voiceaService.areCaptionsEnabled, true);
+        assert.equal(voiceaService.vmcDeviceId, 'ws');
+
+        voiceaService.deregisterEvents();
+        assert.equal(voiceaService.hasVoiceaJoined, false);
+        assert.equal(voiceaService.areCaptionsEnabled, false);
+        assert.equal(voiceaService.vmcDeviceId, undefined);
+      });
+    });
     describe('#processAnnouncementMessage', () => {
       it('works on non-empty payload', async () => {
         const voiceaPayload = {
@@ -224,9 +261,6 @@ describe('plugin-voicea', () => {
           data: {relayType: 'voicea.annc', voiceaPayload: {}},
         });
 
-        const triggerSpy = sinon.spy();
-
-        voiceaService.on(EVENT_TRIGGERS.TRANSCRIBING_ON, triggerSpy);
         voiceaService.listenToEvents();
 
         await voiceaService.toggleTranscribing(true);
@@ -239,16 +273,12 @@ describe('plugin-voicea', () => {
           })
         );
 
-        assert.calledOnce(triggerSpy);
         assert.notCalled(announcementSpy);
       });
 
       it('turns on transcribing with CC disabled', async () => {
         const announcementSpy = sinon.spy(voiceaService, 'sendAnnouncement');
 
-        const triggerSpy = sinon.spy();
-
-        voiceaService.on(EVENT_TRIGGERS.TRANSCRIBING_ON, triggerSpy);
         voiceaService.listenToEvents();
 
         await voiceaService.toggleTranscribing(true);
@@ -261,7 +291,6 @@ describe('plugin-voicea', () => {
           })
         );
 
-        assert.calledOnce(triggerSpy);
         assert.calledOnce(announcementSpy);
       });
 
@@ -270,9 +299,6 @@ describe('plugin-voicea', () => {
 
         const announcementSpy = sinon.spy(voiceaService, 'sendAnnouncement');
 
-        const triggerSpy = sinon.spy();
-
-        voiceaService.on(EVENT_TRIGGERS.TRANSCRIBING_OFF, triggerSpy);
         voiceaService.listenToEvents();
 
         await voiceaService.toggleTranscribing(false);
@@ -285,23 +311,7 @@ describe('plugin-voicea', () => {
           })
         );
 
-        assert.calledOnce(triggerSpy);
         assert.notCalled(announcementSpy);
-      });
-
-      it("doesn't call API on same value", async () => {
-        await voiceaService.toggleTranscribing(true);
-        const triggerSpy = sinon.spy();
-        const announcementSpy = sinon.spy(voiceaService, 'sendAnnouncement');
-
-        voiceaService.on(EVENT_TRIGGERS.TRANSCRIBING_OFF, triggerSpy);
-
-        await voiceaService.toggleTranscribing(true);
-
-        assert.notCalled(triggerSpy);
-        assert.notCalled(announcementSpy);
-
-        assert.calledTwice(voiceaService.request);
       });
     });
 

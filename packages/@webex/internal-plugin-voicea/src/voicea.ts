@@ -24,32 +24,45 @@ export class VoiceaChannel extends WebexPlugin implements IVoiceaChannel {
 
   private areCaptionsEnabled: boolean;
 
-  private isTranscribingEnabled: boolean;
+  private hasSubscribedToEvents: boolean = false;
 
-  private vmcDeviceId: string;
+  private vmcDeviceId?: string;
 
+  private eventProcessor = (e) => {
+    e;
+    this.seqNum = e.sequenceNumber + 1;
+    switch (e.data.relayType) {
+      case VOICEA_RELAY_TYPES.ANNOUNCEMENT:
+        this.vmcDeviceId = e.headers.from;
+        this.hasVoiceaJoined = true;
+        this.processAnnouncementMessage(e.data.voiceaPayload);
+        break;
+      case VOICEA_RELAY_TYPES.TRANSLATION_RESPONSE:
+        this.processCaptionLanguageResponse(e.data.voiceaPayload);
+        break;
+      case VOICEA_RELAY_TYPES.TRANSCRIPTION:
+        this.processTranscription(e.data.voiceaPayload);
+        break;
+      default:
+        break;
+    }
+  };
   /**
    * Listen to websocket messages
    */
   private listenToEvents() {
-    this.webex.internal.llm.on('event:relay.event', (e) => {
-      this.seqNum = e.sequenceNumber + 1;
-      switch (e.data.relayType) {
-        case VOICEA_RELAY_TYPES.ANNOUNCEMENT:
-          this.vmcDeviceId = e.headers.from;
-          this.hasVoiceaJoined = true;
-          this.processAnnouncementMessage(e.data.voiceaPayload);
-          break;
-        case VOICEA_RELAY_TYPES.TRANSLATION_RESPONSE:
-          this.processCaptionLanguageResponse(e.data.voiceaPayload);
-          break;
-        case VOICEA_RELAY_TYPES.TRANSCRIPTION:
-          this.processTranscription(e.data.voiceaPayload);
-          break;
-        default:
-          break;
-      }
-    });
+    if (!this.hasSubscribedToEvents) {
+      this.webex.internal.llm.on('event:relay.event', this.eventProcessor);
+      this.hasSubscribedToEvents = true;
+    }
+  }
+
+  public deregisterEvents() {
+    this.hasVoiceaJoined = false;
+    this.areCaptionsEnabled = false;
+    this.vmcDeviceId = undefined;
+    this.webex.internal.llm.off('event:relay.event', this.eventProcessor);
+    this.hasSubscribedToEvents = false;
   }
 
   /**
@@ -61,7 +74,6 @@ export class VoiceaChannel extends WebexPlugin implements IVoiceaChannel {
     this.seqNum = 1;
     this.hasVoiceaJoined = false;
     this.areCaptionsEnabled = false;
-    this.isTranscribingEnabled = false;
     this.vmcDeviceId = undefined;
   }
 
@@ -223,6 +235,7 @@ export class VoiceaChannel extends WebexPlugin implements IVoiceaChannel {
     if (this.hasVoiceaJoined || !this.webex.internal.llm.isConnected()) return;
 
     this.listenToEvents();
+
     this.webex.internal.llm.socket.send({
       id: `${this.seqNum}`,
       type: 'publishRequest',
@@ -328,8 +341,6 @@ export class VoiceaChannel extends WebexPlugin implements IVoiceaChannel {
    * @returns {Promise}
    */
   public toggleTranscribing = async (activate: boolean): undefined | Promise<void> => {
-    if (this.isTranscribingEnabled === activate) return undefined;
-
     return this.request({
       method: 'PUT',
       url: `${this.webex.internal.llm.getLocusUrl()}/controls/`,
@@ -337,15 +348,6 @@ export class VoiceaChannel extends WebexPlugin implements IVoiceaChannel {
         transcribe: {transcribing: activate},
       },
     }).then(() => {
-      Trigger.trigger(
-        this,
-        {
-          file: 'voicea',
-          function: 'toggleTranscribing',
-        },
-        activate ? EVENT_TRIGGERS.TRANSCRIBING_ON : EVENT_TRIGGERS.TRANSCRIBING_OFF
-      );
-      this.isTranscribingEnabled = activate;
       if (activate && !this.areCaptionsEnabled && !this.hasVoiceaJoined) this.turnOnCaptions();
     });
   };
