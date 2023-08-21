@@ -1,5 +1,9 @@
 # Contributing
 
+<div style="display: inline-block; padding: 12px 16px; background-color: yellow; font-size: 1.5rem; margin-bottom: 1rem; border-radius: 8px">
+  <strong>NOTE</strong>: Please raise all the PRs against <strong>next</strong> branch
+</div>
+
 We'd love for you to contribute to our source code and to make **Webex Javascript SDK** even better than it is today!
 If you would like to contribute to this repository by adding features, enhancements or bug fixes, you must follow our process:
 
